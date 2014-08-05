@@ -33,7 +33,7 @@ tests_require = [
 class PyTest(TestCommand):
     def finalize_options(self):
         TestCommand.finalize_options(self)
-        self.test_args = ['tests']
+        self.test_args = ['test_responses.py']
         self.test_suite = True
 
     def run_tests(self):
@@ -45,7 +45,7 @@ class PyTest(TestCommand):
 
 setup(
     name='responses',
-    version='0.2.1',
+    version='0.2.2',
     author='David Cramer',
     description=(
         'A utility library for mocking out the `requests` Python library.'

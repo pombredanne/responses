@@ -18,9 +18,8 @@ from __future__ import (
     absolute_import, print_function, division, unicode_literals
 )
 
-import re
-
 import six
+
 if six.PY2:
     try:
         from six import cStringIO as BufferIO
@@ -37,6 +36,11 @@ try:
     from requests.packages.urllib3.response import HTTPResponse
 except ImportError:
     from urllib3.response import HTTPResponse
+if six.PY2:
+    from urlparse import urlparse, parse_qsl
+else:
+    from urllib.parse import urlparse, parse_qsl
+
 
 Call = namedtuple('Call', ['request', 'response'])
 
@@ -101,6 +105,17 @@ class RequestsMock(object):
             'stream': stream,
         })
 
+    def add_callback(self, method, url, callback, match_querystring=False,
+                     content_type='text/plain'):
+
+        self._urls.append({
+            'url': url,
+            'method': method,
+            'callback': callback,
+            'content_type': content_type,
+            'match_querystring': match_querystring,
+        })
+
     @property
     def calls(self):
         return self._calls
@@ -124,10 +139,8 @@ class RequestsMock(object):
             if request.method != match['method']:
                 continue
 
-            # TODO(dcramer): we could simplify this by compiling a single
-            # regexp on register
             if match['match_querystring']:
-                if not re.match(re.escape(match['url']), url):
+                if not self._has_url_match(match['url'], url):
                     continue
             else:
                 if match['url'] != url_without_qs:
@@ -136,6 +149,17 @@ class RequestsMock(object):
             return match
 
         return None
+
+    def _has_url_match(self, url, other):
+        url_parsed = urlparse(url)
+        other_parsed = urlparse(other)
+
+        if url_parsed[:3] != other_parsed[:3]:
+            return False
+
+        url_qsl = sorted(parse_qsl(url_parsed.query))
+        other_qsl = sorted(parse_qsl(other_parsed.query))
+        return url_qsl == other_qsl
 
     def _on_request(self, request, **kwargs):
         match = self._find_match(request)
@@ -151,12 +175,21 @@ class RequestsMock(object):
         headers = {
             'Content-Type': match['content_type'],
         }
-        if match['adding_headers']:
-            headers.update(match['adding_headers'])
+
+        if 'callback' in match:  # use callback
+            status, r_headers, body = match['callback'](request)
+            body = BufferIO(body.encode('utf-8'))
+            headers.update(r_headers)
+
+        elif 'body' in match:
+            if match['adding_headers']:
+                headers.update(match['adding_headers'])
+            status = match['status']
+            body = BufferIO(match['body'])
 
         response = HTTPResponse(
-            status=match['status'],
-            body=BufferIO(match['body']),
+            status=status,
+            body=body,
             headers=headers,
             preload_content=False,
         )
@@ -164,7 +197,7 @@ class RequestsMock(object):
         adapter = HTTPAdapter()
 
         response = adapter.build_response(request, response)
-        if not match['stream']:
+        if not match.get('stream'):
             response.content  # NOQA
 
         self._calls.add(request, response)

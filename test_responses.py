@@ -53,11 +53,13 @@ def test_connection_error():
 def test_match_querystring():
     @responses.activate
     def run():
-        url = 'http://example.com?test=1'
+        url = 'http://example.com?test=1&foo=bar'
         responses.add(
             responses.GET, url,
             match_querystring=True, body=b'test')
-        resp = requests.get(url)
+        resp = requests.get('http://example.com?test=1&foo=bar')
+        assert_response(resp, 'test')
+        resp = requests.get('http://example.com?foo=bar&test=1')
         assert_response(resp, 'test')
 
     run()
@@ -86,6 +88,28 @@ def test_accept_string_body():
             responses.GET, url, body='test')
         resp = requests.get(url)
         assert_response(resp, 'test')
+
+    run()
+    assert_reset()
+
+
+def test_callback():
+    body = 'test callback'
+    status = 400
+    headers = {'foo': 'bar'}
+    url = 'http://example.com/'
+
+    def request_callback(request):
+        return (status, headers, body)
+
+    @responses.activate
+    def run():
+        responses.add_callback(responses.GET, url, request_callback)
+        resp = requests.get(url)
+        assert resp.text == body
+        assert resp.status_code == status
+        assert 'foo' in resp.headers
+        assert resp.headers['foo'] == 'bar'
 
     run()
     assert_reset()
